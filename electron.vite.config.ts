@@ -6,6 +6,7 @@ export default defineConfig({
   main: {
     build: {
       rollupOptions: {
+        external: ['electron-updater'],
         input: {
           index: resolve(__dirname, 'electron/main.ts')
         }
