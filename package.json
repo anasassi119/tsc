@@ -1,0 +1,155 @@
+{
+  "name": "tsc",
+  "version": "0.0.1-alpha.1",
+  "description": "The Software Company - Multi-agent software engineering agency",
+  "main": "./out/main/index.js",
+  "author": "Anas Assi",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/anasassi119/tsc.git"
+  },
+  "homepage": "https://github.com/anasassi119/tsc#readme",
+  "bugs": {
+    "url": "https://github.com/anasassi119/tsc/issues"
+  },
+  "scripts": {
+    "lint": "tsc --noEmit",
+    "dev": "unset ELECTRON_RUN_AS_NODE && electron-vite dev",
+    "build": "unset ELECTRON_RUN_AS_NODE && electron-vite build",
+    "preview": "unset ELECTRON_RUN_AS_NODE && electron-vite preview",
+    "start": "unset ELECTRON_RUN_AS_NODE && electron-vite preview",
+    "postinstall": "patch-package && electron-builder install-app-deps",
+    "build:backend": "bash scripts/build-backend.sh",
+    "build:mac": "npm run build:backend && npm run build && electron-builder --mac",
+    "build:win": "npm run build:backend && npm run build && electron-builder --win",
+    "build:linux": "npm run build:backend && npm run build && electron-builder --linux",
+    "release:mac": "npm run build:backend && npm run build && electron-builder --mac --publish always",
+    "release:win": "npm run build:backend && npm run build && electron-builder --win --publish always",
+    "release:linux": "npm run build:backend && npm run build && electron-builder --linux --publish always"
+  },
+  "keywords": [
+    "electron",
+    "react",
+    "langchain",
+    "agents",
+    "deepagents"
+  ],
+  "license": "MIT",
+  "build": {
+    "appId": "com.tsc.app",
+    "productName": "TSC",
+    "directories": {
+      "buildResources": "installer",
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "backend/dist/server",
+        "to": "backend/server",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "mac": {
+      "icon": "installer/icons/mac/icon.icns",
+      "category": "public.app-category.developer-tools",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "dmg": {
+      "title": "TSC Installer",
+      "background": "installer/dmg/background.png",
+      "window": {
+        "width": 620,
+        "height": 420
+      },
+      "contents": [
+        {
+          "x": 180,
+          "y": 210,
+          "type": "file"
+        },
+        {
+          "x": 440,
+          "y": 210,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
+    "win": {
+      "icon": "installer/icons/win/icon.ico",
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "TSC-Setup-${version}.${ext}",
+      "installerIcon": "installer/icons/win/icon.ico",
+      "uninstallerIcon": "installer/icons/win/icon.ico",
+      "include": "installer/win/installer.nsh"
+    },
+    "linux": {
+      "category": "Development",
+      "synopsis": "Multi-agent software engineering desktop app",
+      "description": "TSC is a local multi-agent software engineering desktop app for planning, coding, and verification workflows.",
+      "desktop": {
+        "Name": "TSC",
+        "Comment": "Multi-agent software engineering desktop app"
+      },
+      "target": [
+        "AppImage",
+        "deb"
+      ]
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "anasassi119",
+      "repo": "tsc"
+    }
+  },
+  "dependencies": {
+    "@monaco-editor/react": "^4.7.0",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "better-sqlite3": "^11.8.1",
+    "electron-updater": "^6.8.3",
+    "electron-vite": "^5.0.0",
+    "lucide-react": "^0.511.0",
+    "motion": "^12.38.0",
+    "node-pty": "1.2.0-beta.12",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-markdown": "^10.1.0",
+    "react-resizable-panels": "^4.7.6",
+    "react-virtuoso": "^4.18.3",
+    "rehype-highlight": "^7.0.2",
+    "remark-gfm": "^4.0.1",
+    "zustand": "^5.0.4"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.14.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.2",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.27",
+    "electron": "^35.7.5",
+    "electron-builder": "^25.1.8",
+    "patch-package": "^8.0.1",
+    "postcss": "^8.5.8",
+    "tailwindcss": "^3.4.19",
+    "typescript": "^5.8.2",
+    "vite": "^6.2.5"
+  }
+}

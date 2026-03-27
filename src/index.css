@@ -1,0 +1,123 @@
+@import 'highlight.js/styles/github-dark-dimmed.min.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  }
+
+  body {
+    @apply bg-surface-950 text-surface-100 antialiased;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply px-4 py-2 rounded-lg font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-surface-900 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-primary {
+    @apply bg-primary-600 hover:bg-primary-700 text-white focus:ring-primary-500;
+  }
+
+  .btn-secondary {
+    @apply bg-surface-700 hover:bg-surface-600 text-white focus:ring-surface-500;
+  }
+
+  .input {
+    @apply w-full px-4 py-2 bg-surface-800 border border-surface-700 rounded-lg text-white placeholder-surface-500 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all;
+  }
+
+  .app-drag-region {
+    -webkit-app-region: drag;
+  }
+
+  .app-drag-region button,
+  .app-drag-region input,
+  .app-drag-region a {
+    -webkit-app-region: no-drag;
+  }
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-surface-900;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-surface-600 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-surface-500;
+}
+
+/* Selection */
+::selection {
+  @apply bg-primary-600/40;
+}
+
+/* Soft brand glow accents for overlays/cards */
+.radial-glow-blush {
+  background: radial-gradient(ellipse at center, rgba(225, 103, 134, 0.18) 0%, transparent 72%);
+}
+
+.radial-glow-stone {
+  background: radial-gradient(ellipse at center, rgba(143, 120, 127, 0.16) 0%, transparent 72%);
+}
+
+/* ── Chat prose ──────────────────────────────────────────────────────── */
+
+.prose-chat {
+  @apply text-sm text-surface-200;
+  line-height: 1.75;
+}
+
+.prose-chat > *:first-child {
+  margin-top: 0;
+}
+
+.prose-chat > *:last-child {
+  margin-bottom: 0;
+}
+
+/* Override highlight.js background so the code block wrapper controls it */
+.prose-chat .code-block-wrapper pre code.hljs {
+  background: transparent;
+  padding: 0;
+}
+
+/* Inline code inside prose */
+.prose-chat :not(pre) > code {
+  font-size: 0.8125rem;
+}
+
+/* Nested list indentation */
+.prose-chat ul ul,
+.prose-chat ol ol,
+.prose-chat ul ol,
+.prose-chat ol ul {
+  margin-top: 0.25rem;
+  margin-bottom: 0.25rem;
+}
+
+/* Code block horizontal scrollbar */
+.code-block-wrapper pre::-webkit-scrollbar {
+  height: 6px;
+}
+
+.code-block-wrapper pre::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.code-block-wrapper pre::-webkit-scrollbar-thumb {
+  @apply bg-surface-700 rounded-full;
+}

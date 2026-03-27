@@ -1,0 +1,16 @@
+diff --git a/node_modules/dmg-builder/vendor/dmgbuild/core.py b/node_modules/dmg-builder/vendor/dmgbuild/core.py
+index 1adc352..d65e42e 100644
+--- a/node_modules/dmg-builder/vendor/dmgbuild/core.py
++++ b/node_modules/dmg-builder/vendor/dmgbuild/core.py
+@@ -255,7 +255,10 @@ def build_dmg():
+       icvp['backgroundColorBlue'] = float(c.b)
+     elif background_file:
+       alias = Alias.for_file(background_file)
+-      background_bmk = Bookmark.for_file(background_file)
++      # Do not write Finder bookmark data for the background file. On recent macOS versions
++      # this can corrupt `.DS_Store` / plist parsing so the background image is ignored
++      # (white window). Alias alone is sufficient for `backgroundImageAlias`.
++      # See: https://github.com/electron-userland/electron-builder/issues/9072
+ 
+       icvp['backgroundType'] = 2
+       icvp['backgroundImageAlias'] = biplist.Data(alias.to_bytes())
