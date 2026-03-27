@@ -42,4 +42,7 @@ npm-debug.log*
 release/
 .update-test/
 
+# Local maintainer notes (not committed)
+RELEASES.local.md
+
 # Commit lockfiles (package-lock.json, backend/uv.lock) for reproducible installs.

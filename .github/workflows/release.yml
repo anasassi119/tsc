@@ -21,8 +21,6 @@ jobs:
             npm-script: release:mac
           - os: windows-latest
             npm-script: release:win
-          - os: ubuntu-latest
-            npm-script: release:linux
 
     runs-on: ${{ matrix.os }}
 

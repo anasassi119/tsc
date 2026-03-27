@@ -47,7 +47,7 @@ npm run build:win     # Windows — NSIS + portable
 npm run build:linux   # Linux — AppImage + deb
 ```
 
-Installers and artifacts are written to `release/`. See [`installer/README.md`](installer/README.md) for DMG artwork and code signing notes. Maintainer releases: `.github/workflows/release.yml` on version tags.
+Installers and artifacts are written to `release/`. See [`installer/README.md`](installer/README.md) for DMG artwork and code signing notes.
 
 ## Security
 
