@@ -1,21 +1,50 @@
-MIT License
+Copyright (c) 2026 TSC
 
-Copyright (c) 2025 Anas Assi
+This project is dual-licensed under:
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+1. GNU General Public License v3.0 (GPLv3)
+2. Commercial License (see below)
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+------------------------------------------------------------
+GPLv3 LICENSE
+------------------------------------------------------------
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, version 3.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY.
+
+You should have received a copy of the GNU General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+------------------------------------------------------------
+COMMERCIAL LICENSE
+------------------------------------------------------------
+
+If you wish to use this software without complying with the terms
+of the GPLv3 (for example, to include it in a proprietary product
+without releasing your source code), you must obtain a commercial
+license.
+
+Commercial licenses are available for a fee and grant the right to:
+
+- Use the software in closed-source applications
+- Modify the software without GPL obligations
+- Distribute without releasing source code
+
+To obtain a commercial license, contact:
+
+anasassi119@gmail.com
+
+------------------------------------------------------------
+CLARIFICATION
+------------------------------------------------------------
+
+- If you use this software privately (no distribution), GPLv3 imposes no obligations.
+- If you distribute this software or a derivative work under GPLv3, you must:
+  - Provide full source code
+  - License the entire work under GPLv3
+
+If you cannot or do not wish to comply with GPLv3 terms, you must purchase a commercial license.

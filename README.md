@@ -58,7 +58,7 @@ Packaged builds include [`electron-updater`](https://www.electron.build/auto-upd
   1. Set `version` in `package.json` (for example `0.2.0`).
   2. Commit and push, then tag: `git tag v0.2.0 && git push origin main && git push origin v0.2.0`.
   3. The [Release workflow](.github/workflows/release.yml) builds macOS, Windows, and Linux and uploads installers to that GitHub Release (uses `GITHUB_TOKEN`).
-  4. Alternatively, build locally with a [personal access token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token) that has `repo` scope:  
+  4. Alternatively, build locally with a [personal access token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token) that has `repo` scope:
      `GH_TOKEN=... npm run release:mac` (or `release:win` / `release:linux`).
 
 Release assets must match the version users have installed so `electron-updater` can compare versions correctly.
@@ -75,12 +75,15 @@ Issues and pull requests are welcome. Please keep changes focused; match existin
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+This project is dual-licensed:
+- **GPLv3 (Open Source)** — Free to use, modify, and distribute under the condition that any distributed derivative work is also licensed under GPLv3 and includes full source code.
+
+- **Commercial License** — Required if you want to:
+- Use this software in a proprietary (closed-source) product
+- Avoid GPL obligations
+- Distribute without releasing source code If you are building a commercial product and do not want to open-source it, you must obtain a commercial license.
+For more info: see [LICENSE](LICENSE).
 
 ## Disclaimer
 
 TSC is a tool for assisting development. You are responsible for reviewing generated code, credentials, and commands. This project is not affiliated with LangChain or model providers.
-
-## Monorepo note
-
-If you keep this project **inside another Git repository** and also use it as its own remote (`anasassi119/tsc`), add this folder to the **parent** repo’s `.gitignore` or use a **submodule**, so you do not track the same files twice.
