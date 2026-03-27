@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, dialog, session, Menu, shell } from 'electron'
+import type { UpdateInfo } from 'electron-updater'
 import { join, normalize } from 'path'
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'fs'
 import * as net from 'net'
@@ -15,6 +16,131 @@ let pythonBridge: PythonBridge | null = null
 let settingsStore: SettingsStore | null = null
 const ptyProcesses = new Map<string, pty.IPty>()
 const proxyHandles = new Map<string, ProxyHandle>()
+
+let updateAvailableDialogOpen = false
+let restartInstallDialogOpen = false
+
+/** Build dialog body text from GitHub / generic update metadata. */
+function formatUpdateDetail(info: UpdateInfo): string {
+  const lines: string[] = [`Version ${info.version} is available.`]
+  if (info.releaseName != null && info.releaseName.length > 0) {
+    lines.push(`Release: ${info.releaseName}`)
+  }
+  const notes = info.releaseNotes
+  if (notes != null) {
+    if (typeof notes === 'string') {
+      lines.push('', notes)
+    } else {
+      for (const block of notes) {
+        if (block.note != null && block.note.length > 0) {
+          lines.push('', block.version != null ? `${block.version}: ${block.note}` : block.note)
+        }
+      }
+    }
+  }
+  return lines.join('\n').trim().slice(0, 4000)
+}
+
+function getDialogParent(): BrowserWindow | null {
+  if (mainWindow != null && !mainWindow.isDestroyed()) {
+    return mainWindow
+  }
+  return null
+}
+
+async function showAppMessageBox(options: Electron.MessageBoxOptions): Promise<Electron.MessageBoxReturnValue> {
+  const parent = getDialogParent()
+  if (parent != null) {
+    return dialog.showMessageBox(parent, options)
+  }
+  return dialog.showMessageBox(options)
+}
+
+/**
+ * Checks GitHub Releases (via embedded `app-update.yml` from electron-builder) for newer builds.
+ * Set `TSC_UPDATE_TEST_FEED` to a generic URL to override the feed for local testing.
+ */
+function setupPackagedAutoUpdater(): void {
+  if (!app.isPackaged) {
+    return
+  }
+  void import('electron-updater')
+    .then(({ autoUpdater }) => {
+      autoUpdater.logger = console
+      const feed = process.env['TSC_UPDATE_TEST_FEED']?.trim()
+      if (feed != null && feed.length > 0) {
+        const base = feed.endsWith('/') ? feed : `${feed}/`
+        autoUpdater.setFeedURL({ provider: 'generic', url: base })
+      }
+      // Prerelease versions (e.g. 0.0.1-alpha.x) require this for electron-updater to offer newer prereleases.
+      autoUpdater.allowPrerelease = app.getVersion().includes('-')
+      autoUpdater.autoDownload = false
+
+      autoUpdater.on('update-available', async (info) => {
+        console.log('[updates] update available:', info.version)
+        if (updateAvailableDialogOpen) {
+          return
+        }
+        updateAvailableDialogOpen = true
+        try {
+          const { response } = await showAppMessageBox({
+            type: 'info',
+            title: 'Update available',
+            message: 'A new version of TSC is available.',
+            detail: formatUpdateDetail(info),
+            buttons: ['Later', 'Update'],
+            defaultId: 1,
+            cancelId: 0,
+          })
+          if (response === 1) {
+            await autoUpdater.downloadUpdate()
+          }
+        } catch (err: unknown) {
+          console.warn('[updates] dialog or download failed:', err)
+        } finally {
+          updateAvailableDialogOpen = false
+        }
+      })
+
+      autoUpdater.on('update-downloaded', async (event) => {
+        console.log('[updates] update downloaded:', event.version)
+        if (restartInstallDialogOpen) {
+          return
+        }
+        restartInstallDialogOpen = true
+        try {
+          const { response } = await showAppMessageBox({
+            type: 'info',
+            title: 'Update ready',
+            message: 'The update has been downloaded.',
+            detail: `Version ${event.version} will be installed when you restart TSC.`,
+            buttons: ['Later', 'Restart and install'],
+            defaultId: 1,
+            cancelId: 0,
+          })
+          if (response === 1) {
+            setImmediate(() => {
+              autoUpdater.quitAndInstall(false, true)
+            })
+          }
+        } finally {
+          restartInstallDialogOpen = false
+        }
+      })
+
+      autoUpdater.on('update-not-available', (info) => {
+        console.log('[updates] up to date (no newer release):', info.version)
+      })
+      autoUpdater.on('error', (err) => {
+        console.warn('[updates] error:', err)
+      })
+
+      return autoUpdater.checkForUpdates()
+    })
+    .catch((err: unknown) => {
+      console.warn('[updates] check failed:', err)
+    })
+}
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -110,16 +236,7 @@ app.whenReady().then(async () => {
   setupIpcHandlers()
   createWindow()
 
-  if (app.isPackaged) {
-    void import('electron-updater')
-      .then(({ autoUpdater }) => {
-        autoUpdater.logger = console
-        return autoUpdater.checkForUpdatesAndNotify()
-      })
-      .catch((err: unknown) => {
-        console.warn('[updates] check failed:', err)
-      })
-  }
+  setupPackagedAutoUpdater()
 
   try {
     await pythonBridge.start()

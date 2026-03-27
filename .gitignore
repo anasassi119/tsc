@@ -40,5 +40,6 @@ npm-debug.log*
 
 # Electron
 release/
+.update-test/
 
 # Commit lockfiles (package-lock.json, backend/uv.lock) for reproducible installs.
