@@ -1,6 +1,6 @@
 {
   "name": "tsc",
-  "version": "0.0.1-alpha.7",
+  "version": "0.0.1-alpha.8",
   "description": "The Software Company - Multi-agent software engineering agency",
   "main": "./out/main/index.js",
   "author": "Anas Assi",
