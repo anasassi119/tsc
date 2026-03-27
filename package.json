@@ -1,6 +1,6 @@
 {
   "name": "tsc",
-  "version": "0.0.1-alpha.3",
+  "version": "0.0.1-alpha.4",
   "description": "The Software Company - Multi-agent software engineering agency",
   "main": "./out/main/index.js",
   "author": "Anas Assi",
@@ -65,7 +65,7 @@
     },
     "dmg": {
       "title": "TSC Installer",
-      "background": "installer/dmg/background.png",
+      "background": "installer/dmg/background.svg",
       "window": {
         "width": 620,
         "height": 420
