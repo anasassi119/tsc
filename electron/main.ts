@@ -8,8 +8,15 @@ import { PythonBridge } from './python-bridge'
 import { detectPreviewFromOutput, type PreviewConfig } from './preview-server'
 import { SettingsStore, type Project } from './store'
 import { startPreviewProxy, type ProxyHandle } from './preview-proxy'
+import {
+  checkGitHubReleaseAndMaybeNotify,
+  fetchNewerReleaseThan,
+  getRepoFromPackageJson,
+} from './update-check'
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
+
+const PACKAGED_UPDATE_CHECK_DELAY_MS = 4500
 
 let mainWindow: BrowserWindow | null = null
 let pythonBridge: PythonBridge | null = null
@@ -57,8 +64,33 @@ async function showAppMessageBox(options: Electron.MessageBoxOptions): Promise<E
 }
 
 /**
- * Checks GitHub Releases (via embedded `app-update.yml` from electron-builder) for newer builds.
- * Set `TSC_UPDATE_TEST_FEED` to a generic URL to override the feed for local testing.
+ * In development, compares `app.getVersion()` to tags on GitHub Releases (see `repository` in
+ * package.json) and shows a native dialog with a link to the release page. Production builds use
+ * electron-updater against the same GitHub repo (see `build.publish` in package.json).
+ */
+function scheduleDevelopmentReleaseCheck(): void {
+  if (app.isPackaged) {
+    return
+  }
+  void checkGitHubReleaseAndMaybeNotify(async (d) => {
+    const { response } = await showAppMessageBox({
+      type: 'info',
+      title: d.title,
+      message: d.message,
+      detail: d.detail,
+      buttons: [d.secondaryLabel, d.primaryLabel],
+      defaultId: 1,
+      cancelId: 0,
+    })
+    return { openRelease: response === 1 }
+  })
+}
+
+/**
+ * Packaged builds: compares the running app to GitHub Releases for `repository` in package.json,
+ * shows a native dialog with release notes, then uses electron-updater (same repo via
+ * `build.publish`) to download installers. Falls back to the updater feed alone if the GitHub API
+ * check fails. Set `TSC_UPDATE_TEST_FEED` to override the feed for local testing.
  */
 function setupPackagedAutoUpdater(): void {
   if (!app.isPackaged) {
@@ -66,6 +98,8 @@ function setupPackagedAutoUpdater(): void {
   }
   void import('electron-updater')
     .then(({ autoUpdater }) => {
+      let skipUpdateAvailableDialog = false
+
       autoUpdater.logger = console
       const feed = process.env['TSC_UPDATE_TEST_FEED']?.trim()
       if (feed != null && feed.length > 0) {
@@ -78,6 +112,15 @@ function setupPackagedAutoUpdater(): void {
 
       autoUpdater.on('update-available', async (info) => {
         console.log('[updates] update available:', info.version)
+        if (skipUpdateAvailableDialog) {
+          skipUpdateAvailableDialog = false
+          try {
+            await autoUpdater.downloadUpdate()
+          } catch (err: unknown) {
+            console.warn('[updates] download after GitHub prompt failed:', err)
+          }
+          return
+        }
         if (updateAvailableDialogOpen) {
           return
         }
@@ -129,13 +172,47 @@ function setupPackagedAutoUpdater(): void {
       })
 
       autoUpdater.on('update-not-available', (info) => {
+        skipUpdateAvailableDialog = false
         console.log('[updates] up to date (no newer release):', info.version)
       })
       autoUpdater.on('error', (err) => {
+        skipUpdateAvailableDialog = false
         console.warn('[updates] error:', err)
       })
 
-      return autoUpdater.checkForUpdates()
+      const runPackagedUpdateCheck = async (): Promise<void> => {
+        await new Promise((r) => setTimeout(r, PACKAGED_UPDATE_CHECK_DELAY_MS))
+        const { owner, repo } = getRepoFromPackageJson(app.getAppPath())
+        const current = app.getVersion()
+        try {
+          const release = await fetchNewerReleaseThan(owner, repo, current)
+          if (release != null) {
+            const detailParts = [`Version ${release.version} is available.`, '', release.name]
+            if (release.body.length > 0) {
+              detailParts.push('', release.body)
+            }
+            const { response } = await showAppMessageBox({
+              type: 'info',
+              title: 'Update available',
+              message: 'A new version of TSC is available.',
+              detail: detailParts.join('\n').trim().slice(0, 4000),
+              buttons: ['Later', 'Update'],
+              defaultId: 1,
+              cancelId: 0,
+            })
+            if (response === 1) {
+              skipUpdateAvailableDialog = true
+              await autoUpdater.checkForUpdates()
+            }
+            return
+          }
+        } catch (err: unknown) {
+          console.warn('[updates] GitHub release check failed, falling back to updater feed:', err)
+        }
+        await autoUpdater.checkForUpdates()
+      }
+
+      void runPackagedUpdateCheck()
     })
     .catch((err: unknown) => {
       console.warn('[updates] check failed:', err)
@@ -236,6 +313,7 @@ app.whenReady().then(async () => {
   setupIpcHandlers()
   createWindow()
 
+  scheduleDevelopmentReleaseCheck()
   setupPackagedAutoUpdater()
 
   try {
