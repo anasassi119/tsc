@@ -17,7 +17,7 @@
 
 | Tool | Notes |
 |------|--------|
-| [Node.js](https://nodejs.org/) | 18+ |
+| [Node.js](https://nodejs.org/) | 22+ |
 | [Python](https://www.python.org/) | 3.11+ |
 | [uv](https://docs.astral.sh/uv/) | Python dependency manager |
 
