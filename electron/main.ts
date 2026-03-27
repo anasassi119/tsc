@@ -215,14 +215,35 @@ function setupAutoUpdater(): void {
     autoUpdater.on('error', (err) => {
       console.warn('[updates] error:', err)
 
-      // Squirrel.Mac can't install into the dev Electron shell (wrong bundle ID).
-      // The download succeeded; silently ignore this so the UI doesn't show an error.
-      const isSquirrelInstallFail =
+      const isSquirrelError =
         err != null &&
         typeof err === 'object' &&
         'domain' in err &&
         (err as { domain?: unknown }).domain === 'SQRLUpdaterErrorDomain'
-      if (isSquirrelInstallFail) {
+      if (isSquirrelError) {
+        if (!app.isPackaged) {
+          // Dev
+          return
+        }
+        const msg = err instanceof Error ? err.message : String(err)
+        sendUpdateStatus({ state: 'error', message: msg })
+        const gh = readGithubPublishFromPackageJson()
+        const releasesUrl =
+          gh != null ? `https://github.com/${gh.owner}/${gh.repo}/releases` : 'https://github.com'
+        void showAppMessageBox({
+          type: 'warning',
+          title: 'Auto-install failed',
+          message: 'macOS rejected the update because the app is not code-signed with an Apple Developer certificate.',
+          detail:
+            'Squirrel.Mac requires a valid code signature to apply updates. You can download the .dmg manually from GitHub, or sign the build with a Developer ID certificate.',
+          buttons: ['OK', 'Open releases'],
+          defaultId: 1,
+          cancelId: 0,
+        }).then(({ response }) => {
+          if (response === 1) {
+            void shell.openExternal(releasesUrl)
+          }
+        })
         return
       }
 
