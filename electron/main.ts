@@ -199,9 +199,8 @@ function setupAutoUpdater(): void {
           cancelId: 0,
         })
         if (response === 1) {
+          quittingForUpdate = true
           autoUpdater.quitAndInstall(false, true)
-          // Safety net: if quitAndInstall doesn't exit (macOS Squirrel race), force quit.
-          setTimeout(() => app.exit(0), 3000)
         }
       } finally {
         restartInstallDialogOpen = false
@@ -408,7 +407,10 @@ app.on('window-all-closed', async () => {
 })
 
 let pendingQuit = false
+let quittingForUpdate = false
 app.on('before-quit', (e) => {
+  // Let Squirrel proceed uninterrupted when quitting to apply an update.
+  if (quittingForUpdate) return
   if (pendingQuit) return
   const win = mainWindow
   if (win && !win.isDestroyed()) {
@@ -464,8 +466,8 @@ function setupIpcHandlers(): void {
     if (!validateSender(event)) {
       return
     }
+    quittingForUpdate = true
     autoUpdater.quitAndInstall(false, true)
-    setTimeout(() => app.exit(0), 3000)
   })
 
   ipcMain.handle('updates:download', async (event) => {
