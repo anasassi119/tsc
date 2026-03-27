@@ -1,38 +1,208 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Save, Eye, EyeOff, RefreshCw, CheckCircle, AlertCircle, X, Loader2 } from 'lucide-react'
+import {
+  Save,
+  Eye,
+  EyeOff,
+  RefreshCw,
+  CheckCircle,
+  AlertCircle,
+  X,
+  Loader2,
+  Key,
+  Info,
+  Download,
+  RotateCcw,
+} from 'lucide-react'
 import { useAgentStore } from '../../stores/agentStore'
+import type { UpdateStatus } from '../../../electron/preload'
 
 interface ProviderModel {
   id: string
   name: string
 }
 
-const FALLBACK_MODELS: Record<string, ProviderModel[]> = {
-  anthropic: [
-    { id: 'claude-sonnet-4-6', name: 'claude-sonnet-4-6' },
-    { id: 'claude-opus-4', name: 'claude-opus-4' },
-    { id: 'claude-3-5-sonnet-20241022', name: 'claude-3-5-sonnet-20241022' },
-  ],
-  openai: [
-    { id: 'gpt-5', name: 'gpt-5' },
-    { id: 'gpt-4o', name: 'gpt-4o' },
-    { id: 'gpt-4-turbo', name: 'gpt-4-turbo' },
-  ],
-  openrouter: [
-    { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet' },
-    { id: 'openai/gpt-4o', name: 'GPT-4o' },
-    { id: 'google/gemini-2.0-flash', name: 'Gemini 2.0 Flash' },
-  ],
-}
-
 interface SettingsDialogProps {
   open: boolean
   onClose: () => void
+  initialTab?: 'keys' | 'about'
 }
 
-export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
+// ---------------------------------------------------------------------------
+// About panel
+// ---------------------------------------------------------------------------
+function AboutPanel() {
+  const [version, setVersion] = useState<string | null>(null)
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null)
+  const isChecking = updateStatus?.state === 'checking'
+  const isDownloading = updateStatus?.state === 'downloading'
+  const isDownloaded = updateStatus?.state === 'downloaded'
+  const isPackaged = window.electron.isPackaged
+
+  useEffect(() => {
+    void window.electron.app.getVersion().then(setVersion)
+  }, [])
+
+  useEffect(() => {
+    const unsub = window.electron.updates.onStatus(setUpdateStatus)
+    return unsub
+  }, [])
+
+  const handleCheckForUpdates = async () => {
+    setUpdateStatus({ state: 'checking' })
+    await window.electron.updates.checkNow()
+  }
+
+  const handleDownload = async () => {
+    setUpdateStatus({ state: 'checking' })
+    await window.electron.updates.download()
+  }
+
+  const handleInstall = async () => {
+    await window.electron.updates.install()
+  }
+
+  const statusLabel = (): string | null => {
+    if (updateStatus == null) return null
+    switch (updateStatus.state) {
+      case 'checking':
+        return 'Checking for updates…'
+      case 'not-available':
+        return `You're up to date (${updateStatus.version})`
+      case 'available':
+        return `Update available: v${updateStatus.version}`
+      case 'downloading':
+        return `Downloading… ${Math.round(updateStatus.percent)}%`
+      case 'downloaded':
+        return `Ready to install: v${updateStatus.version}`
+      case 'error':
+        return `Error: ${updateStatus.message}`
+    }
+  }
+
+  const statusColor = (): string => {
+    if (updateStatus == null) return 'text-surface-400'
+    switch (updateStatus.state) {
+      case 'checking':
+      case 'downloading':
+        return 'text-primary-400'
+      case 'not-available':
+        return 'text-green-400'
+      case 'available':
+      case 'downloaded':
+        return 'text-yellow-400'
+      case 'error':
+        return 'text-red-400'
+    }
+  }
+
+  const downloadPercent =
+    updateStatus?.state === 'downloading' ? Math.round(updateStatus.percent) : 0
+
+  return (
+    <div className="space-y-8">
+      <section>
+        <h2 className="text-sm font-medium text-surface-400 uppercase tracking-wide mb-4">About</h2>
+        <div className="space-y-1">
+          <p className="text-xs text-surface-500">Version</p>
+          <p className="text-sm font-mono text-white">{version != null ? `v${version}` : '—'}</p>
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-medium text-surface-400 uppercase tracking-wide">Updates</h2>
+
+        {/* Progress bar */}
+        {isDownloading && (
+          <div className="space-y-1">
+            <div className="h-1.5 w-full bg-surface-800 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-primary-500 rounded-full transition-all duration-300"
+                style={{ width: `${downloadPercent}%` }}
+              />
+            </div>
+            <p className="text-xs text-surface-500 text-right">{downloadPercent}%</p>
+          </div>
+        )}
+
+        {/* Status text */}
+        {statusLabel() != null && (
+          <p className={`text-xs ${statusColor()}`}>{statusLabel()}</p>
+        )}
+
+        {/* Action buttons */}
+        <div className="flex flex-wrap gap-2">
+          {!isDownloaded && (
+            <button
+              type="button"
+              onClick={handleCheckForUpdates}
+              disabled={isChecking || isDownloading}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs bg-surface-800 text-surface-200 hover:bg-surface-700 hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isChecking ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="w-3.5 h-3.5" />
+              )}
+              Check for updates
+            </button>
+          )}
+
+          {updateStatus?.state === 'available' && (
+            <button
+              type="button"
+              onClick={handleDownload}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs bg-primary-600 text-white hover:bg-primary-500 transition-colors"
+            >
+              <Download className="w-3.5 h-3.5" />
+              Download update
+            </button>
+          )}
+
+          {isDownloaded && isPackaged && (
+            <button
+              type="button"
+              onClick={handleInstall}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs bg-green-600 text-white hover:bg-green-500 transition-colors"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              Restart and install
+            </button>
+          )}
+          {isDownloaded && !isPackaged && (
+            <p className="text-xs text-surface-500">
+              Downloaded — will install automatically when the packaged app restarts.
+            </p>
+          )}
+        </div>
+
+        {updateStatus?.state === 'available' && (
+          <details className="mt-1">
+            <summary className="text-xs text-surface-500 cursor-pointer hover:text-surface-300 select-none">
+              Release notes
+            </summary>
+            <pre className="mt-2 text-xs text-surface-300 whitespace-pre-wrap font-sans leading-relaxed bg-surface-800 rounded-lg p-3 max-h-48 overflow-y-auto">
+              {updateStatus.notes}
+            </pre>
+          </details>
+        )}
+      </section>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Main dialog
+// ---------------------------------------------------------------------------
+type SidebarTab = 'keys' | 'about'
+
+export function SettingsDialog({ open, onClose, initialTab }: SettingsDialogProps) {
   const { settings, saveSettings, loadSettings } = useAgentStore()
   const backdropRef = useRef<HTMLDivElement>(null)
+  const [activeTab, setActiveTab] = useState<SidebarTab>(initialTab ?? 'keys')
+
+  useEffect(() => {
+    if (open) setActiveTab(initialTab ?? 'keys')
+  }, [open, initialTab])
 
   const [anthropicKey, setAnthropicKey] = useState('')
   const [openaiKey, setOpenaiKey] = useState('')
@@ -87,14 +257,14 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
         const result = await window.electron.models.list(provider, apiKey)
         if (result.error) {
           setModelsError((prev) => ({ ...prev, [provider]: result.error ?? null }))
-          setProviderModels((prev) => ({ ...prev, [provider]: FALLBACK_MODELS[provider] || [] }))
+          setProviderModels((prev) => ({ ...prev, [provider]: [] }))
         } else {
           setProviderModels((prev) => ({ ...prev, [provider]: result.models }))
           fetchedForRef.current[provider] = cacheKey
         }
       } catch {
         setModelsError((prev) => ({ ...prev, [provider]: 'Failed to fetch models' }))
-        setProviderModels((prev) => ({ ...prev, [provider]: FALLBACK_MODELS[provider] || [] }))
+        setProviderModels((prev) => ({ ...prev, [provider]: [] }))
       } finally {
         setModelsLoading((prev) => ({ ...prev, [provider]: false }))
       }
@@ -107,7 +277,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
     fetchModels(defaultProvider)
   }, [open, defaultProvider, fetchModels])
 
-  const currentModels = providerModels[defaultProvider] || FALLBACK_MODELS[defaultProvider] || []
+  const currentModels = providerModels[defaultProvider] || []
   const isLoadingModels = modelsLoading[defaultProvider] || false
   const currentModelsError = modelsError[defaultProvider] || null
 
@@ -166,13 +336,18 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
 
   const hasApiKey = anthropicKey || openaiKey || openrouterKey
 
+  const SIDEBAR_ITEMS: { id: SidebarTab; label: string; icon: React.ReactNode }[] = [
+    { id: 'keys', label: 'API Keys', icon: <Key className="w-4 h-4" /> },
+    { id: 'about', label: 'About', icon: <Info className="w-4 h-4" /> },
+  ]
+
   return (
     <div
       ref={backdropRef}
       onClick={handleBackdropClick}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
     >
-      <div className="relative w-full max-w-2xl max-h-[85vh] mx-4 bg-surface-900 border border-surface-700 rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+      <div className="relative w-full max-w-3xl max-h-[85vh] mx-4 bg-surface-900 border border-surface-700 rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-surface-800">
           <h1 className="text-lg font-semibold text-white">Settings</h1>
@@ -185,156 +360,188 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
           </button>
         </div>
 
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          {/* API Keys */}
-          <section>
-            <h2 className="text-sm font-medium text-surface-400 uppercase tracking-wide mb-3">API Keys</h2>
-            <div className="space-y-4">
-              {([
-                { key: 'anthropic', label: 'Anthropic', placeholder: 'sk-ant-...', value: anthropicKey, setter: setAnthropicKey },
-                { key: 'openai', label: 'OpenAI', placeholder: 'sk-...', value: openaiKey, setter: setOpenaiKey },
-                { key: 'openrouter', label: 'OpenRouter', placeholder: 'sk-or-...', value: openrouterKey, setter: setOpenrouterKey },
-              ] as const).map((item) => (
-                <div key={item.key}>
-                  <label className="block text-xs font-medium text-surface-300 mb-1.5">{item.label}</label>
-                  <div className="relative">
-                    <input
-                      type={showKeys[item.key] ? 'text' : 'password'}
-                      value={item.value}
-                      onChange={(e) => item.setter(e.target.value)}
-                      placeholder={item.placeholder}
-                      className="input pr-10 w-full"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => toggleShowKey(item.key)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-surface-400 hover:text-white"
-                    >
-                      {showKeys[item.key] ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-            {!hasApiKey && (
-              <div className="mt-3 flex items-center gap-2 text-yellow-500 text-xs">
-                <AlertCircle className="w-3.5 h-3.5" />
-                <span>At least one API key is required</span>
-              </div>
-            )}
-          </section>
+        {/* Body: sidebar + content */}
+        <div className="flex flex-1 min-h-0">
+          {/* Sidebar */}
+          <nav className="w-44 shrink-0 border-r border-surface-800 py-4 flex flex-col gap-0.5 px-2">
+            {SIDEBAR_ITEMS.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setActiveTab(item.id)}
+                className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors text-left ${
+                  activeTab === item.id
+                    ? 'bg-surface-800 text-white'
+                    : 'text-surface-400 hover:text-white hover:bg-surface-800/60'
+                }`}
+              >
+                {item.icon}
+                {item.label}
+              </button>
+            ))}
+          </nav>
 
-          {/* Model Configuration */}
-          <section>
-            <h2 className="text-sm font-medium text-surface-400 uppercase tracking-wide mb-3">Default Model</h2>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-medium text-surface-300 mb-1.5">Provider</label>
-                <select
-                  value={defaultProvider}
-                  onChange={(e) => {
-                    const provider = e.target.value as 'anthropic' | 'openai' | 'openrouter'
-                    setDefaultProvider(provider)
-                    const models = providerModels[provider] || FALLBACK_MODELS[provider] || []
-                    setDefaultModel(models[0]?.id ?? '')
-                    fetchedForRef.current[provider] = ''
-                    fetchModels(provider)
-                  }}
-                  className="input w-full"
-                >
-                  <option value="anthropic">Anthropic</option>
-                  <option value="openai">OpenAI</option>
-                  <option value="openrouter">OpenRouter</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-surface-300 mb-1.5">
-                  Model
-                  {isLoadingModels && (
-                    <Loader2 className="inline-block w-3 h-3 ml-1.5 animate-spin text-primary-400" />
-                  )}
-                </label>
-                {currentModels.length > 15 ? (
-                  <div className="relative">
-                    <input
-                      type="text"
-                      list={`model-list-${defaultProvider}`}
-                      value={defaultModel}
-                      onChange={(e) => setDefaultModel(e.target.value)}
-                      placeholder={isLoadingModels ? 'Loading models…' : 'Type to search models…'}
-                      className="input w-full"
-                    />
-                    <datalist id={`model-list-${defaultProvider}`}>
-                      {currentModels.map((m) => (
-                        <option key={m.id} value={m.id}>{m.name !== m.id ? m.name : undefined}</option>
+          {/* Content area */}
+          <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+            <div className="flex-1 overflow-y-auto p-6">
+              {activeTab === 'keys' && (
+                <div className="space-y-6">
+                  {/* API Keys */}
+                  <section>
+                    <h2 className="text-sm font-medium text-surface-400 uppercase tracking-wide mb-3">API Keys</h2>
+                    <div className="space-y-4">
+                      {([
+                        { key: 'anthropic', label: 'Anthropic', placeholder: 'sk-ant-...', value: anthropicKey, setter: setAnthropicKey },
+                        { key: 'openai', label: 'OpenAI', placeholder: 'sk-...', value: openaiKey, setter: setOpenaiKey },
+                        { key: 'openrouter', label: 'OpenRouter', placeholder: 'sk-or-...', value: openrouterKey, setter: setOpenrouterKey },
+                      ] as const).map((item) => (
+                        <div key={item.key}>
+                          <label className="block text-xs font-medium text-surface-300 mb-1.5">{item.label}</label>
+                          <div className="relative">
+                            <input
+                              type={showKeys[item.key] ? 'text' : 'password'}
+                              value={item.value}
+                              onChange={(e) => item.setter(e.target.value)}
+                              placeholder={item.placeholder}
+                              className="input pr-10 w-full"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => toggleShowKey(item.key)}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 text-surface-400 hover:text-white"
+                            >
+                              {showKeys[item.key] ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                            </button>
+                          </div>
+                        </div>
                       ))}
-                    </datalist>
-                  </div>
-                ) : (
-                  <select
-                    value={defaultModel}
-                    onChange={(e) => setDefaultModel(e.target.value)}
-                    className="input w-full"
-                    disabled={isLoadingModels}
-                  >
-                    {isLoadingModels && <option value="">Loading…</option>}
-                    {currentModels.map((m) => (
-                      <option key={m.id} value={m.id}>{m.name !== m.id ? `${m.name} (${m.id})` : m.id}</option>
-                    ))}
-                    {!isLoadingModels && defaultModel && !currentModels.some((m) => m.id === defaultModel) && (
-                      <option value={defaultModel}>{defaultModel}</option>
+                    </div>
+                    {!hasApiKey && (
+                      <div className="mt-3 flex items-center gap-2 text-yellow-500 text-xs">
+                        <AlertCircle className="w-3.5 h-3.5" />
+                        <span>At least one API key is required</span>
+                      </div>
                     )}
-                  </select>
-                )}
-                {currentModelsError && !isLoadingModels && (
-                  <p className="mt-1 text-xs text-yellow-500/80">{currentModelsError}</p>
-                )}
+                  </section>
+
+                  {/* Model Configuration */}
+                  <section>
+                    <h2 className="text-sm font-medium text-surface-400 uppercase tracking-wide mb-3">Default Model</h2>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-medium text-surface-300 mb-1.5">Provider</label>
+                        <select
+                          value={defaultProvider}
+                          onChange={(e) => {
+                            const provider = e.target.value as 'anthropic' | 'openai' | 'openrouter'
+                            setDefaultProvider(provider)
+                            const models = providerModels[provider] || []
+                            setDefaultModel(models[0]?.id ?? '')
+                            fetchedForRef.current[provider] = ''
+                            fetchModels(provider)
+                          }}
+                          className="input w-full"
+                        >
+                          <option value="anthropic">Anthropic</option>
+                          <option value="openai">OpenAI</option>
+                          <option value="openrouter">OpenRouter</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-surface-300 mb-1.5">
+                          Model
+                          {isLoadingModels && (
+                            <Loader2 className="inline-block w-3 h-3 ml-1.5 animate-spin text-primary-400" />
+                          )}
+                        </label>
+                        {currentModels.length > 15 ? (
+                          <div className="relative">
+                            <input
+                              type="text"
+                              list={`model-list-${defaultProvider}`}
+                              value={defaultModel}
+                              onChange={(e) => setDefaultModel(e.target.value)}
+                              placeholder={isLoadingModels ? 'Loading models…' : 'Type to search models…'}
+                              className="input w-full"
+                            />
+                            <datalist id={`model-list-${defaultProvider}`}>
+                              {currentModels.map((m) => (
+                                <option key={m.id} value={m.id}>{m.name !== m.id ? m.name : undefined}</option>
+                              ))}
+                            </datalist>
+                          </div>
+                        ) : (
+                          <select
+                            value={defaultModel}
+                            onChange={(e) => setDefaultModel(e.target.value)}
+                            className="input w-full"
+                            disabled={isLoadingModels}
+                          >
+                            {isLoadingModels && <option value="">Loading…</option>}
+                            {currentModels.map((m) => (
+                              <option key={m.id} value={m.id}>{m.name !== m.id ? `${m.name} (${m.id})` : m.id}</option>
+                            ))}
+                            {!isLoadingModels && defaultModel && !currentModels.some((m) => m.id === defaultModel) && (
+                              <option value={defaultModel}>{defaultModel}</option>
+                            )}
+                          </select>
+                        )}
+                        {currentModelsError && !isLoadingModels && (
+                          <p className="mt-1 text-xs text-yellow-500/80">{currentModelsError}</p>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            fetchedForRef.current[defaultProvider] = ''
+                            fetchModels(defaultProvider)
+                          }}
+                          disabled={isLoadingModels}
+                          className="mt-1.5 text-xs text-surface-500 hover:text-primary-400 transition-colors flex items-center gap-1"
+                        >
+                          <RefreshCw className={`w-3 h-3 ${isLoadingModels ? 'animate-spin' : ''}`} />
+                          Refresh models
+                        </button>
+                      </div>
+                    </div>
+                  </section>
+                </div>
+              )}
+
+              {activeTab === 'about' && <AboutPanel />}
+            </div>
+
+            {/* Footer — only show save button on API Keys tab */}
+            {activeTab === 'keys' && (
+              <div className="flex items-center justify-between px-6 py-4 border-t border-surface-800">
                 <button
                   type="button"
-                  onClick={() => {
-                    fetchedForRef.current[defaultProvider] = ''
-                    fetchModels(defaultProvider)
-                  }}
-                  disabled={isLoadingModels}
-                  className="mt-1.5 text-xs text-surface-500 hover:text-primary-400 transition-colors flex items-center gap-1"
+                  onClick={handleRestartBackend}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-surface-400 hover:text-white hover:bg-surface-800 transition-colors"
                 >
-                  <RefreshCw className={`w-3 h-3 ${isLoadingModels ? 'animate-spin' : ''}`} />
-                  Refresh models
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  Restart backend
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSave}
+                  disabled={saving}
+                  className="btn btn-primary flex items-center gap-2"
+                >
+                  {saved ? (
+                    <>
+                      <CheckCircle className="w-4 h-4" />
+                      Saved
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" />
+                      Save
+                    </>
+                  )}
                 </button>
               </div>
-            </div>
-          </section>
-        </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-surface-800">
-          <button
-            type="button"
-            onClick={handleRestartBackend}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-surface-400 hover:text-white hover:bg-surface-800 transition-colors"
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-            Restart backend
-          </button>
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={saving}
-            className="btn btn-primary flex items-center gap-2"
-          >
-            {saved ? (
-              <>
-                <CheckCircle className="w-4 h-4" />
-                Saved
-              </>
-            ) : (
-              <>
-                <Save className="w-4 h-4" />
-                Save
-              </>
             )}
-          </button>
+          </div>
         </div>
       </div>
     </div>

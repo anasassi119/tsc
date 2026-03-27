@@ -22,6 +22,28 @@ let updateAvailableDialogOpen = false
 let restartInstallDialogOpen = false
 let channelFileMissingDialogShown = false
 
+/** Broadcast an update status event to the renderer (if the window exists). */
+function sendUpdateStatus(status: unknown): void {
+  if (mainWindow != null && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('updates:status', status)
+  }
+}
+
+function stripHtml(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<\/li>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
 /** Build dialog body text from GitHub / generic update metadata. */
 function formatUpdateDetail(info: UpdateInfo): string {
   const lines: string[] = [`Version ${info.version} is available.`]
@@ -31,11 +53,12 @@ function formatUpdateDetail(info: UpdateInfo): string {
   const notes = info.releaseNotes
   if (notes != null) {
     if (typeof notes === 'string') {
-      lines.push('', notes)
+      lines.push('', stripHtml(notes))
     } else {
       for (const block of notes) {
         if (block.note != null && block.note.length > 0) {
-          lines.push('', block.version != null ? `${block.version}: ${block.note}` : block.note)
+          const cleaned = stripHtml(block.note)
+          lines.push('', block.version != null ? `${block.version}: ${cleaned}` : cleaned)
         }
       }
     }
@@ -102,6 +125,9 @@ function getUpdaterErrorCode(err: unknown): string | undefined {
  * Dev: `forceDevUpdateConfig` + GitHub feed from `package.json` `build.publish`. Production:
  * `app-update.yml` from the app bundle.
  * Override with `TSC_UPDATE_TEST_FEED` for a generic URL.
+ *
+ * Status events are pushed to the renderer via `updates:status` IPC. Native dialogs are only used
+ * for `update-downloaded` (user may not be in Settings) and the channel-file-missing fallback.
  */
 function setupAutoUpdater(): void {
   console.log('[updates] initializing auto-updater')
@@ -116,10 +142,19 @@ function setupAutoUpdater(): void {
       const base = feed.endsWith('/') ? feed : `${feed}/`
       autoUpdater.setFeedURL({ provider: 'generic', url: base })
     } else if (!app.isPackaged) {
+      // electron-updater reads dev-app-update.yml even when setFeedURL is called.
+      // Generate it from package.json so there's nothing to maintain manually.
       const gh = readGithubPublishFromPackageJson()
       if (gh != null) {
-        autoUpdater.setFeedURL({ provider: 'github', owner: gh.owner, repo: gh.repo })
-        console.log('[updates] dev: using GitHub feed from package.json', gh)
+        const yml =
+          `provider: github\nowner: ${gh.owner}\nrepo: ${gh.repo}\nupdaterCacheDirName: ${app.getName()}-updater\n`
+        const dest = join(app.getAppPath(), 'dev-app-update.yml')
+        try {
+          writeFileSync(dest, yml, 'utf-8')
+          console.log('[updates] dev: wrote dev-app-update.yml to', dest)
+        } catch (e) {
+          console.warn('[updates] dev: could not write dev-app-update.yml:', e)
+        }
       } else {
         console.warn(
           '[updates] dev: could not read build.publish (github) from package.json — update checks may fail',
@@ -129,35 +164,26 @@ function setupAutoUpdater(): void {
     // Prerelease versions (e.g. 0.0.1-alpha.x) require this for electron-updater to offer newer prereleases.
     autoUpdater.allowPrerelease = app.getVersion().includes('-')
     autoUpdater.autoDownload = false
+    autoUpdater.autoInstallOnAppQuit = true
 
-    autoUpdater.on('update-available', async (info) => {
+    autoUpdater.on('update-available', (info) => {
       console.log('[updates] update available:', info.version)
-      if (updateAvailableDialogOpen) {
-        return
-      }
-      updateAvailableDialogOpen = true
-      try {
-        const { response } = await showAppMessageBox({
-          type: 'info',
-          title: 'Update available',
-          message: 'A new version of TSC is available.',
-          detail: formatUpdateDetail(info),
-          buttons: ['Later', 'Update'],
-          defaultId: 1,
-          cancelId: 0,
-        })
-        if (response === 1) {
-          await autoUpdater.downloadUpdate()
-        }
-      } catch (err: unknown) {
-        console.warn('[updates] dialog or download failed:', err)
-      } finally {
-        updateAvailableDialogOpen = false
-      }
+      sendUpdateStatus({ state: 'available', version: info.version, notes: formatUpdateDetail(info) })
+    })
+
+    autoUpdater.on('download-progress', (progress) => {
+      sendUpdateStatus({
+        state: 'downloading',
+        percent: progress.percent,
+        transferred: progress.transferred,
+        total: progress.total,
+      })
     })
 
     autoUpdater.on('update-downloaded', async (event) => {
       console.log('[updates] update downloaded:', event.version)
+      sendUpdateStatus({ state: 'downloaded', version: event.version })
+      // Native dialog as fallback for users not currently in Settings > About.
       if (restartInstallDialogOpen) {
         return
       }
@@ -166,16 +192,16 @@ function setupAutoUpdater(): void {
         const { response } = await showAppMessageBox({
           type: 'info',
           title: 'Update ready',
-          message: 'The update has been downloaded.',
-          detail: `Version ${event.version} will be installed when you restart TSC.`,
+          message: `TSC ${event.version} has been downloaded.`,
+          detail: 'Restart now to install, or it will be installed on next launch.',
           buttons: ['Later', 'Restart and install'],
           defaultId: 1,
           cancelId: 0,
         })
         if (response === 1) {
-          setImmediate(() => {
-            autoUpdater.quitAndInstall(false, true)
-          })
+          autoUpdater.quitAndInstall(false, true)
+          // Safety net: if quitAndInstall doesn't exit (macOS Squirrel race), force quit.
+          setTimeout(() => app.exit(0), 3000)
         }
       } finally {
         restartInstallDialogOpen = false
@@ -183,19 +209,37 @@ function setupAutoUpdater(): void {
     })
 
     autoUpdater.on('update-not-available', (info) => {
-      console.log('[updates] up to date (no newer release):', info.version)
+      console.log('[updates] up to date:', info.version)
+      sendUpdateStatus({ state: 'not-available', version: info.version })
     })
+
     autoUpdater.on('error', (err) => {
       console.warn('[updates] error:', err)
+
+      // Squirrel.Mac can't install into the dev Electron shell (wrong bundle ID).
+      // The download succeeded; silently ignore this so the UI doesn't show an error.
+      const isSquirrelInstallFail =
+        err != null &&
+        typeof err === 'object' &&
+        'domain' in err &&
+        (err as { domain?: unknown }).domain === 'SQRLUpdaterErrorDomain'
+      if (isSquirrelInstallFail) {
+        return
+      }
+
+      const msg = err instanceof Error ? err.message : String(err)
+      sendUpdateStatus({ state: 'error', message: msg })
+
+      // Native fallback when updater assets are missing from the GitHub release.
+      if (getUpdaterErrorCode(err) !== 'ERR_UPDATER_CHANNEL_FILE_NOT_FOUND') {
+        return
+      }
+      if (channelFileMissingDialogShown || updateAvailableDialogOpen) {
+        return
+      }
+      channelFileMissingDialogShown = true
+      updateAvailableDialogOpen = true
       void (async () => {
-        if (getUpdaterErrorCode(err) !== 'ERR_UPDATER_CHANNEL_FILE_NOT_FOUND') {
-          return
-        }
-        if (channelFileMissingDialogShown || updateAvailableDialogOpen) {
-          return
-        }
-        channelFileMissingDialogShown = true
-        updateAvailableDialogOpen = true
         try {
           const gh = readGithubPublishFromPackageJson()
           const releasesUrl =
@@ -206,7 +250,7 @@ function setupAutoUpdater(): void {
             message:
               'The latest release on GitHub is missing electron-builder update files (for example latest-mac.yml).',
             detail:
-              'In-app updates only work when a release is published with `npm run release:mac` or your CI workflow so those files are uploaded as release assets. You can still download the installer from GitHub.',
+              'In-app updates only work when a release is published via `npm run release:mac` or the CI workflow. You can still download the installer from GitHub.',
             buttons: ['OK', 'Open releases'],
             defaultId: 1,
             cancelId: 0,
@@ -222,10 +266,8 @@ function setupAutoUpdater(): void {
 
     const runUpdateCheck = async (): Promise<void> => {
       await new Promise((r) => setTimeout(r, UPDATE_CHECK_DELAY_MS))
-      console.log('[updates] checkForUpdates', {
-        packaged: app.isPackaged,
-        version: app.getVersion(),
-      })
+      console.log('[updates] checkForUpdates', { packaged: app.isPackaged, version: app.getVersion() })
+      sendUpdateStatus({ state: 'checking' })
       try {
         await autoUpdater.checkForUpdates()
       } catch (err: unknown) {
@@ -402,6 +444,42 @@ app.on('will-quit', async () => {
 })
 
 function setupIpcHandlers(): void {
+  ipcMain.handle('app:getVersion', () => app.getVersion())
+  ipcMain.on('app:isPackaged', (event) => { event.returnValue = app.isPackaged })
+
+  ipcMain.handle('updates:checkNow', async (event) => {
+    if (!validateSender(event)) {
+      return
+    }
+    sendUpdateStatus({ state: 'checking' })
+    try {
+      await autoUpdater.checkForUpdates()
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      sendUpdateStatus({ state: 'error', message: msg })
+    }
+  })
+
+  ipcMain.handle('updates:install', (event) => {
+    if (!validateSender(event)) {
+      return
+    }
+    autoUpdater.quitAndInstall(false, true)
+    setTimeout(() => app.exit(0), 3000)
+  })
+
+  ipcMain.handle('updates:download', async (event) => {
+    if (!validateSender(event)) {
+      return
+    }
+    try {
+      await autoUpdater.downloadUpdate()
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      sendUpdateStatus({ state: 'error', message: msg })
+    }
+  })
+
   ipcMain.handle('settings:get', (event) => {
     console.log('[IPC] settings:get called')
     try {

@@ -40,12 +40,26 @@ export interface PreviewConfig {
   projectRoot: string
 }
 
+export type UpdateStatus =
+  | { state: 'checking' }
+  | { state: 'available'; version: string; notes: string }
+  | { state: 'not-available'; version: string }
+  | { state: 'downloading'; percent: number; transferred: number; total: number }
+  | { state: 'downloaded'; version: string }
+  | { state: 'error'; message: string }
+
 export interface ElectronAPI {
   settings: {
     get: () => Promise<Settings | null>
     set: (settings: Partial<Settings>) => Promise<void>
     getApiKey: (provider: string) => Promise<string | null>
     setApiKey: (provider: string, key: string) => Promise<void>
+  }
+  updates: {
+    checkNow: () => Promise<void>
+    download: () => Promise<void>
+    install: () => Promise<void>
+    onStatus: (cb: (status: UpdateStatus) => void) => () => void
   }
   dialog: {
     selectDirectory: () => Promise<string | null>
@@ -113,13 +127,25 @@ export interface ElectronAPI {
     openExternal: (url: string) => void
   }
   platform: string
+  isPackaged: boolean
   app: {
     onBeforeQuit: (callback: () => void) => void
     notifySaved: () => void
+    getVersion: () => Promise<string>
   }
 }
 
 const api: ElectronAPI = {
+  updates: {
+    checkNow: async () => { await ipcRenderer.invoke('updates:checkNow') },
+    download: async () => { await ipcRenderer.invoke('updates:download') },
+    install: async () => { await ipcRenderer.invoke('updates:install') },
+    onStatus: (cb) => {
+      const handler = (_e: Electron.IpcRendererEvent, status: UpdateStatus) => cb(status)
+      ipcRenderer.on('updates:status', handler)
+      return () => ipcRenderer.off('updates:status', handler)
+    },
+  },
   settings: {
     get: async () => {
       const result = await ipcRenderer.invoke('settings:get')
@@ -326,6 +352,7 @@ const api: ElectronAPI = {
     openExternal: (url: string) => { ipcRenderer.invoke('shell:openExternal', url) },
   },
   platform: process.platform,
+  isPackaged: ipcRenderer.sendSync('app:isPackaged') as boolean,
   app: {
     onBeforeQuit: (callback: () => void) => {
       ipcRenderer.on('app:before-quit', callback)
@@ -333,6 +360,7 @@ const api: ElectronAPI = {
     notifySaved: () => {
       ipcRenderer.send('app:saved')
     },
+    getVersion: async () => ipcRenderer.invoke('app:getVersion') as Promise<string>,
   },
 }
 

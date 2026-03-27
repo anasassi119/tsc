@@ -18,7 +18,9 @@ import {
   PanelLeftClose,
   PanelRight,
   PanelRightClose,
+  Download,
 } from 'lucide-react'
+import type { UpdateStatus } from '../../../electron/preload'
 import { SubagentPill, SubagentThreadDialog } from './SubagentThreadDialog'
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso'
 import { useAgentStore, type Message, type ToolCall } from '../../stores/agentStore'
@@ -141,6 +143,29 @@ export function Chat({ needsSetup, pythonReady }: ChatProps) {
   const [devPanelOpen, setDevPanelOpen] = useState(true)
   const [showDashboard, setShowDashboard] = useState(false)
   const [showSettings, setShowSettings] = useState(needsSetup ?? false)
+  const [settingsInitialTab, setSettingsInitialTab] = useState<'keys' | 'about' | undefined>()
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null)
+  const [updateToastDismissed, setUpdateToastDismissed] = useState(false)
+
+  useEffect(() => {
+    const unsub = window.electron.updates.onStatus((s) => {
+      setUpdateStatus(s)
+      if (s.state === 'available' || s.state === 'downloaded') {
+        setUpdateToastDismissed(false)
+      }
+    })
+    return unsub
+  }, [])
+
+  const showUpdateBadge =
+    !updateToastDismissed &&
+    (updateStatus?.state === 'available' || updateStatus?.state === 'downloaded')
+
+  const openSettingsAbout = () => {
+    setSettingsInitialTab('about')
+    setShowSettings(true)
+    setUpdateToastDismissed(true)
+  }
 
   // Virtuoso ref for programmatic scrolling
   const virtuosoRef = useRef<VirtuosoHandle>(null)
@@ -263,12 +288,18 @@ export function Chat({ needsSetup, pythonReady }: ChatProps) {
             </button>
             <button
               type="button"
-              onClick={() => setShowSettings(true)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-surface-500 hover:text-surface-200 hover:bg-surface-800 transition-colors"
+              onClick={() => {
+                setSettingsInitialTab(undefined)
+                setShowSettings(true)
+              }}
+              className="relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-surface-500 hover:text-surface-200 hover:bg-surface-800 transition-colors"
               title="Settings"
             >
               <Settings className="w-3.5 h-3.5" />
               <span>Settings</span>
+              {showUpdateBadge && (
+                <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-primary-400" />
+              )}
             </button>
             <div className="ml-auto flex items-center gap-2 pr-1">
               <div
@@ -458,7 +489,38 @@ export function Chat({ needsSetup, pythonReady }: ChatProps) {
       )}
 
       <DashboardDialog open={showDashboard} onClose={() => setShowDashboard(false)} />
-      <SettingsDialog open={showSettings} onClose={() => setShowSettings(false)} />
+      <SettingsDialog
+        open={showSettings}
+        onClose={() => setShowSettings(false)}
+        initialTab={settingsInitialTab}
+      />
+
+      {/* Update available toast */}
+      {showUpdateBadge && (
+        <div className="fixed bottom-4 right-4 z-40 flex items-center gap-3 px-4 py-3 bg-surface-800 border border-surface-700 rounded-xl shadow-xl text-sm animate-in slide-in-from-bottom-2 duration-200">
+          <Download className="w-4 h-4 text-primary-400 shrink-0" />
+          <span className="text-surface-200">
+            {updateStatus?.state === 'downloaded'
+              ? `v${updateStatus.version} ready to install`
+              : `Update available: v${updateStatus?.state === 'available' ? updateStatus.version : ''}`}
+          </span>
+          <button
+            type="button"
+            onClick={openSettingsAbout}
+            className="text-xs text-primary-400 hover:text-primary-300 font-medium transition-colors"
+          >
+            View
+          </button>
+          <button
+            type="button"
+            onClick={() => setUpdateToastDismissed(true)}
+            className="text-surface-500 hover:text-white transition-colors"
+            aria-label="Dismiss"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
     </div>
   )
 }
