@@ -2,8 +2,8 @@
 
 **TSC** is a local desktop app that runs a multi-agent software engineering workflow: discovery, PRDs, planning, delegation to specialist agents, and verification — powered by [LangChain Deep Agents](https://github.com/langchain-ai/deepagents) (LangGraph) with a FastAPI backend and an Electron + React UI.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Node.js](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](package.json)
+[![License: DUAL](https://img.shields.io/badge/License-DUAL-yellow.svg)](LICENSE)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](package.json)
 
 ## Highlights
 
@@ -76,12 +76,13 @@ Issues and pull requests are welcome. Please keep changes focused; match existin
 ## License
 
 This project is dual-licensed:
-- **GPLv3 (Open Source)** — Free to use, modify, and distribute under the condition that any distributed derivative work is also licensed under GPLv3 and includes full source code.
+### **GPLv3 (Open Source)** — Free to use, modify, and distribute under the condition that any distributed derivative work is also licensed under GPLv3 and includes full source code.
 
-- **Commercial License** — Required if you want to:
+### **Commercial License** — Required if you want to:
 - Use this software in a proprietary (closed-source) product
 - Avoid GPL obligations
 - Distribute without releasing source code If you are building a commercial product and do not want to open-source it, you must obtain a commercial license.
+
 For more info: see [LICENSE](LICENSE).
 
 ## Disclaimer
