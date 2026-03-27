@@ -51,12 +51,17 @@ Installers and artifacts are written to `release/`. See [`installer/README.md`](
 
 ## Updates (GitHub Releases)
 
-Packaged builds include [`electron-updater`](https://www.electron.build/auto-update) configured for this repository. When you publish a **GitHub Release** whose tag matches the app version (for example `v0.1.0` and `version` in `package.json`), the app can check for updates and notify when a new release is available.
+Packaged builds include [`electron-updater`](https://www.electron.build/auto-update) configured for this repository (`build.publish` in `package.json` points at `anasassi119/tsc`). In **production** builds, the app checks for updates after launch and uses the OS notification when a newer release is available.
 
-- **Public repo:** update checks use the GitHub API without extra configuration.
-- **Publishing releases:** push a git tag and attach build artifacts, or use the [release workflow](.github/workflows/release.yml) with GitHub Actions.
+- **Public repo:** no token is required on the user’s machine to **check** for updates.
+- **Maintainers — publish a release**
+  1. Set `version` in `package.json` (for example `0.2.0`).
+  2. Commit and push, then tag: `git tag v0.2.0 && git push origin main && git push origin v0.2.0`.
+  3. The [Release workflow](.github/workflows/release.yml) builds macOS, Windows, and Linux and uploads installers to that GitHub Release (uses `GITHUB_TOKEN`).
+  4. Alternatively, build locally with a [personal access token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token) that has `repo` scope:  
+     `GH_TOKEN=... npm run release:mac` (or `release:win` / `release:linux`).
 
-See **Releases** on GitHub for changelog and downloads.
+Release assets must match the version users have installed so `electron-updater` can compare versions correctly.
 
 ## Security
 
