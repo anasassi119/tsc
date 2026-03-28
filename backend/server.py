@@ -90,11 +90,19 @@ app.add_middleware(
 MAIN_AGENT_LABEL = "Orchestrator"
 
 
-def _agent_label_from_ns(ns_key: tuple[str, ...]) -> str:
-    """Derive a display label from LangGraph namespace (last segment is usually subagent name)."""
-    if not ns_key:
-        return MAIN_AGENT_LABEL
-    return str(ns_key[-1])
+def _agent_name_from_metadata(metadata: dict[str, Any] | None) -> str:
+    """Extract the agent display name from LangGraph stream metadata.
+
+    The Deep Agents SDK sets ``metadata["lc_agent_name"]`` via
+    ``create_agent(name=...)``.  Orchestrator events carry
+    ``"Orchestrator"``; subagent events carry the subagent spec name
+    (e.g. ``"frontend"``, ``"backend-api"``).
+    """
+    if metadata:
+        name = metadata.get("lc_agent_name")
+        if isinstance(name, str) and name:
+            return name
+    return MAIN_AGENT_LABEL
 
 
 def _resolved_project_root(workspace_dir: str, project_id: str | None) -> str:
@@ -226,7 +234,10 @@ async def _stream_agent_turn(
 
     displayed_tool_ids: set[str] = set()
     tool_call_buffers: dict[str | int, dict[str, Any]] = {}
-    last_ns: tuple[str, ...] | None = None
+    # Maps ns_key → (thread_id, agent_label).
+    # Each unique task() call gets a unique namespace (LangGraph embeds the tool_call_id),
+    # so two parallel "frontend" runs have different ns_keys and different thread_ids.
+    ns_threads: dict[tuple[str, ...], tuple[str, str]] = {}
 
     stream_kwargs: dict[str, Any] = {
         "stream_mode": ["messages", "updates"],
@@ -239,20 +250,44 @@ async def _stream_agent_turn(
     except TypeError:
         stream_iter = agent.astream(input_state, **stream_kwargs)
 
-    async def emit_messages_for_ns(ns_key: tuple[str, ...], message: Any) -> None:
-        agent_label = _agent_label_from_ns(ns_key)
-        scope = "main" if not ns_key else "subagent"
-        buffer_prefix = "main" if not ns_key else ":".join(ns_key)
+    async def _ensure_thread_for_ns(invocation_key: tuple[str, ...], agent_label: str) -> str:
+        """Return the thread_id for this invocation key; emit on_subagent_start on first call."""
+        if invocation_key not in ns_threads:
+            thread_id = str(uuid.uuid4())
+            short_id = thread_id[:8]
+            display_name = f"{agent_label}:{short_id}"
+            ns_threads[invocation_key] = (thread_id, display_name)
+            logger.debug("[subagent_start] key=%s agent=%s thread=%s", invocation_key, display_name, thread_id)
+            await send_json({"event": "on_subagent_start", "data": {"agent": display_name, "thread_id": thread_id}})
+        return ns_threads[invocation_key][0]
+
+    async def _emit_message(ns_key: tuple[str, ...], message: Any, metadata: dict[str, Any] | None) -> None:
+        # lc_agent_name is set by create_agent(name=...) on each compiled graph.
+        # Orchestrator → "Orchestrator", subagents → their spec name ("frontend", "backend-api", …).
+        agent_label = _agent_name_from_metadata(metadata)
+        is_subagent = agent_label != MAIN_AGENT_LABEL
+        scope = "subagent" if is_subagent else "main"
+        buffer_prefix = "main" if not ns_key else ":".join(str(s) for s in ns_key)
         tracker = get_tracker(ns_key)
+        thread_id: str | None = None
+        display_label = agent_label
+        if is_subagent:
+            # Normalize to the first namespace segment which identifies the task()
+            # invocation. Inner nodes (agent, tools, …) within the same subagent
+            # graph append extra segments, but they all share this first segment.
+            invocation_key = ns_key[:1] if ns_key else ns_key
+            thread_id = await _ensure_thread_for_ns(invocation_key, agent_label)
+            display_label = ns_threads[invocation_key][1]
         await _process_stream_message(
             message,
             tracker,
             displayed_tool_ids,
             tool_call_buffers,
             send_json,
-            agent_label=agent_label,
+            agent_label=display_label,
             scope=scope,
             buffer_prefix=buffer_prefix,
+            thread_id=thread_id,
         )
 
     async for part in stream_iter:
@@ -260,21 +295,6 @@ async def _stream_agent_turn(
         if isinstance(part, tuple) and len(part) == 3:
             namespace, current_stream_mode, data = part
             ns_key = tuple(namespace) if namespace else ()
-            if ns_key != last_ns:
-                if last_ns is not None and len(last_ns) > 0 and len(ns_key) == 0:
-                    await send_json({
-                        "event": "on_subagent_end",
-                        "data": {"agent": _agent_label_from_ns(last_ns)},
-                    })
-                if len(ns_key) > 0 and (last_ns is None or len(last_ns) == 0):
-                    await send_json({
-                        "event": "on_subagent_start",
-                        "data": {
-                            "namespace": str(ns_key),
-                            "agent": _agent_label_from_ns(ns_key),
-                        },
-                    })
-                last_ns = ns_key
             if current_stream_mode == "updates":
                 if not isinstance(data, dict):
                     continue
@@ -290,32 +310,16 @@ async def _stream_agent_turn(
                 continue
             if not isinstance(data, tuple) or len(data) != 2:
                 continue
-            message, _metadata = data
-            await emit_messages_for_ns(ns_key, message)
+            message, metadata = data
+            metadata = metadata if isinstance(metadata, dict) else {}
+            await _emit_message(ns_key, message, metadata)
             continue
 
         if not isinstance(part, dict):
             continue
         ptype = part.get("type")
-        ns_key = part.get("ns")
-        if not isinstance(ns_key, tuple):
-            ns_key = ()
-
-        if ns_key != last_ns:
-            if last_ns is not None and len(last_ns) > 0 and len(ns_key) == 0:
-                await send_json({
-                    "event": "on_subagent_end",
-                    "data": {"agent": _agent_label_from_ns(last_ns)},
-                })
-            if len(ns_key) > 0 and (last_ns is None or len(last_ns) == 0):
-                await send_json({
-                    "event": "on_subagent_start",
-                    "data": {
-                        "namespace": str(ns_key),
-                        "agent": _agent_label_from_ns(ns_key),
-                    },
-                })
-            last_ns = ns_key
+        raw_ns = part.get("ns")
+        ns_key = tuple(raw_ns) if raw_ns else ()
 
         if ptype == "updates":
             data = part.get("data")
@@ -336,15 +340,14 @@ async def _stream_agent_turn(
         data = part.get("data")
         if not isinstance(data, tuple) or len(data) != 2:
             continue
-        message, _metadata = data
+        message, metadata = data
+        metadata = metadata if isinstance(metadata, dict) else {}
+        await _emit_message(ns_key, message, metadata)
 
-        await emit_messages_for_ns(ns_key, message)
-
-    if last_ns is not None and len(last_ns) > 0:
-        await send_json({
-            "event": "on_subagent_end",
-            "data": {"agent": _agent_label_from_ns(last_ns)},
-        })
+    # Close any subagent threads still open at stream end
+    for _ns, (tid, name) in list(ns_threads.items()):
+        await send_json({"event": "on_subagent_end", "data": {"agent": name, "thread_id": tid}})
+    ns_threads.clear()
 
 
 async def _process_stream_message(
@@ -357,6 +360,7 @@ async def _process_stream_message(
     agent_label: str,
     scope: str,
     buffer_prefix: str,
+    thread_id: str | None = None,
 ) -> None:
     """Handle one streamed message tuple (message, metadata) for main or subgraph agents."""
     if isinstance(message, ToolMessage):
@@ -373,21 +377,19 @@ async def _process_stream_message(
             diff_str = record.diff
             display_path = record.display_path
 
-        await send_json({
-            "event": "on_tool_result",
-            "data": {
-                "tool_result": {
-                    "id": tool_id or "",
-                    "name": tool_name,
-                    "result": output_str,
-                    "status": "success" if status_ok else "error",
-                    "diff": diff_str,
-                    "diff_path": display_path,
-                    "agent": agent_label,
-                    "scope": scope,
-                },
-            },
-        })
+        tr_data: dict[str, Any] = {
+            "id": tool_id or "",
+            "name": tool_name,
+            "result": output_str,
+            "status": "success" if status_ok else "error",
+            "diff": diff_str,
+            "diff_path": display_path,
+            "agent": agent_label,
+            "scope": scope,
+        }
+        if thread_id:
+            tr_data["thread_id"] = thread_id
+        await send_json({"event": "on_tool_result", "data": {"tool_result": tr_data}})
 
         if tool_name == "task":
             report = _parse_handoff_report(output_str)
@@ -418,10 +420,10 @@ async def _process_stream_message(
         if block_type == "text":
             text = block.get("text", "")
             if text:
-                await send_json({
-                    "event": "on_text_chunk",
-                    "data": {"chunk": text, "agent": agent_label, "scope": scope},
-                })
+                tc_data: dict[str, Any] = {"chunk": text, "agent": agent_label, "scope": scope}
+                if thread_id:
+                    tc_data["thread_id"] = thread_id
+                await send_json({"event": "on_text_chunk", "data": tc_data})
         elif block_type in {"tool_call_chunk", "tool_call"}:
             chunk_name = block.get("name")
             chunk_args = block.get("args")
@@ -478,17 +480,18 @@ async def _process_stream_message(
             if buffer_id is not None and display_key not in displayed_tool_ids:
                 displayed_tool_ids.add(display_key)
                 tracker.start_operation(buffer_name, parsed_args, str(buffer_id))
+                tc_event: dict[str, Any] = {
+                    "id": str(buffer_id),
+                    "name": buffer_name,
+                    "args": parsed_args,
+                    "agent": agent_label,
+                    "scope": scope,
+                }
+                if thread_id:
+                    tc_event["thread_id"] = thread_id
                 await send_json({
                     "event": "on_tool_call",
-                    "data": {
-                        "tool_call": {
-                            "id": str(buffer_id),
-                            "name": buffer_name,
-                            "args": parsed_args,
-                            "agent": agent_label,
-                            "scope": scope,
-                        },
-                    },
+                    "data": {"tool_call": tc_event},
                 })
             tool_call_buffers.pop(storage_key, None)
 

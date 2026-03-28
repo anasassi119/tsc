@@ -68,6 +68,7 @@ export interface StreamEvent {
     agent?: string
     scope?: string
     namespace?: string
+    thread_id?: string
     session_id?: string
     protocol?: number
     phase?: string
@@ -77,6 +78,7 @@ export interface StreamEvent {
       args: Record<string, unknown>
       agent?: string
       scope?: string
+      thread_id?: string
     }
     tool_result?: {
       id: string
@@ -87,6 +89,7 @@ export interface StreamEvent {
       diff_path?: string | null
       agent?: string
       scope?: string
+      thread_id?: string
     }
     todos?: Array<{ id: string; content: string; status: string }>
     interrupt?: {
@@ -114,6 +117,10 @@ export function useAgentStream() {
   const sessionIdRef = useRef<string | null>(useAgentStore.getState().currentThreadId)
   const toolCallsRef = useRef<ToolCall[]>([])
   const currentAgentRef = useRef<string | null>(null)
+  // Maps agent name → thread_id for all currently active subagent invocations.
+  // Using a map (not a single ref) so parallel subagents (e.g. two "frontend" agents)
+  // each keep their own thread_id and never overwrite each other.
+  const activeThreadsRef = useRef<Map<string, string>>(new Map())
   const [isConnected, setIsConnected] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -132,6 +139,9 @@ export function useAgentStream() {
     updateLastStreamToolResult,
     addFileOperation,
     setActiveSubagent,
+    addActiveThreadId,
+    removeActiveThreadId,
+    clearActiveThreadIds,
     addHandoffReport,
   } = useAgentStore()
 
@@ -157,19 +167,33 @@ export function useAgentStream() {
           if (data.chunk) {
             const agent = data.agent ?? currentAgentRef.current ?? undefined
             const scope: BlockScope = data.scope === 'subagent' ? 'subagent' : 'main'
+  
+            const threadId = scope === 'subagent'
+              ? (data.thread_id ?? (agent ? activeThreadsRef.current.get(agent) : undefined))
+              : undefined
             appendStreamContent(data.chunk)
-            appendStreamChunk(data.chunk, agent, scope)
+            appendStreamChunk(data.chunk, agent, scope, threadId)
           }
           break
 
         case 'on_subagent_start':
-          if (data.agent) {
+          if (data.agent && data.thread_id) {
+            activeThreadsRef.current.set(data.agent, data.thread_id)
+            addActiveThreadId(data.thread_id)
             setActiveSubagent(data.agent)
           }
           break
 
         case 'on_subagent_end':
-          setActiveSubagent(null)
+          if (data.thread_id) {
+            removeActiveThreadId(data.thread_id)
+          }
+          if (data.agent) {
+            activeThreadsRef.current.delete(data.agent)
+          }
+          if (activeThreadsRef.current.size === 0) {
+            setActiveSubagent(null)
+          }
           break
 
         case 'on_agent_start':
@@ -178,6 +202,8 @@ export function useAgentStream() {
             currentAgentRef.current = data.agent
             setActiveAgent(data.agent)
             setActiveSubagent(null)
+            activeThreadsRef.current.clear()
+            clearActiveThreadIds()
             if (!useAgentStore.getState().isStreaming) {
               clearStreamContent()
               clearStreamingBlocks()
@@ -192,6 +218,10 @@ export function useAgentStream() {
         case 'on_tool_start':
           if (data.tool_call) {
             const scope: BlockScope = data.tool_call.scope === 'subagent' ? 'subagent' : 'main'
+            const tcAgent = data.tool_call.agent ?? currentAgentRef.current ?? undefined
+            const tcThreadId = scope === 'subagent'
+              ? (data.tool_call.thread_id ?? (tcAgent ? activeThreadsRef.current.get(tcAgent) : undefined))
+              : undefined
             const tc: ToolCall = {
               id: data.tool_call.id,
               name: data.tool_call.name,
@@ -201,7 +231,7 @@ export function useAgentStream() {
             }
             toolCallsRef.current = [...toolCallsRef.current, tc]
             setStreamingToolCalls([...toolCallsRef.current])
-            pushStreamToolBlock(tc, data.tool_call.agent ?? currentAgentRef.current ?? undefined, scope)
+            pushStreamToolBlock(tc, tcAgent, scope, tcThreadId)
 
             if (data.tool_call.name === 'set_preview') {
               const url = data.tool_call.args?.url
@@ -466,6 +496,8 @@ export function useAgentStream() {
           }
           setActiveAgent(null)
           setActiveSubagent(null)
+          activeThreadsRef.current.clear()
+          clearActiveThreadIds()
         }
 
         ws.onmessage = (e) => {
@@ -521,6 +553,8 @@ export function useAgentStream() {
       sessionIdRef.current = threadId || null
       configRef.current = null
       toolCallsRef.current = []
+      activeThreadsRef.current.clear()
+      clearActiveThreadIds()
       setStreamingToolCalls([])
       setIsConnected(false)
       setIsStreaming(false)
@@ -529,7 +563,7 @@ export function useAgentStream() {
       clearStreamContent()
       clearStreamingBlocks()
     },
-    [setIsStreaming, setActiveAgent, setActiveSubagent, clearStreamContent, setStreamingToolCalls, clearStreamingBlocks]
+    [setIsStreaming, setActiveAgent, setActiveSubagent, clearStreamContent, setStreamingToolCalls, clearStreamingBlocks, clearActiveThreadIds]
   )
 
   const switchToThread = useCallback(
@@ -541,6 +575,8 @@ export function useAgentStream() {
       sessionIdRef.current = threadId
       configRef.current = null
       toolCallsRef.current = []
+      activeThreadsRef.current.clear()
+      clearActiveThreadIds()
       setStreamingToolCalls([])
       setIsConnected(false)
       setIsStreaming(false)
@@ -549,7 +585,7 @@ export function useAgentStream() {
       clearStreamContent()
       clearStreamingBlocks()
     },
-    [setIsStreaming, setActiveAgent, setActiveSubagent, clearStreamContent, setStreamingToolCalls, clearStreamingBlocks]
+    [setIsStreaming, setActiveAgent, setActiveSubagent, clearStreamContent, setStreamingToolCalls, clearStreamingBlocks, clearActiveThreadIds]
   )
 
   const respondToApproval = useCallback(
@@ -621,8 +657,10 @@ export function useAgentStream() {
       ),
     }))
     setActiveSubagent(null)
+    activeThreadsRef.current.clear()
+    clearActiveThreadIds()
     finalizeAndStopStream()
-  }, [finalizeAndStopStream, setStreamingToolCalls, setActiveSubagent])
+  }, [finalizeAndStopStream, setStreamingToolCalls, setActiveSubagent, clearActiveThreadIds])
 
   const resetConnection = useCallback(() => {
     if (wsRef.current) {

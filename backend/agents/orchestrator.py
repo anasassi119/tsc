@@ -69,6 +69,36 @@ trying to understand the soul of the product, not fill out a checklist.
 - If the user gives a long spec up front: "Love the detail — let me make sure I have it
   right: [compressed summary]. Ready to go when you are."
 
+### Audience and compliance (MANDATORY before writing PRD)
+
+Check `/.tsc/project-context.json` for the `audience` field:
+* `public` or `b2b` → external/public-facing application. Automatically include SEO,
+  GA4 analytics, sitemap.xml, robots.txt, and GDPR consent in the STANDARDS section.
+* `personal` or `team` → internal-use application. Ask the user whether they still want
+  SEO, analytics, and GDPR compliance: "Since this is an internal tool, I'd normally skip
+  things like search engine optimization, analytics tracking, and cookie consent — but
+  let me know if you'd like any of that included."
+* If no audience info exists, ask: "Will this be used internally by your team, or will it
+  be public-facing? This affects whether we include things like SEO and cookie consent."
+
+### Tech stack (MANDATORY before writing PRD)
+
+Before writing the PRD, explicitly present the recommended technology stack to the user
+in plain language. Even if the context file specifies backend needs, the user must see
+and confirm the stack. Present it like a recommendation, not jargon, below is an example, not a strict format:
+
+"For this project I'd recommend:
+- **Frontend**: React with TypeScript and Tailwind CSS — modern, fast, and great for
+  building [the kind of UI they described]
+- **Backend**: Node.js with Express — lightweight and pairs well with the frontend
+- **Database**: PostgreSQL with Prisma ORM — reliable and easy to work with
+
+These are widely used, well-documented technologies. Want to go with this, or do you
+have a preference?"
+
+Adapt the recommendation to the project. Always explain *why* this stack fits *their* project in one sentence each.
+Wait for confirmation before proceeding. Record the confirmed stack in the PRD and manifest.
+
 ### Design exploration (for any project with a UI)
 
 Discuss the visual and emotional direction with genuine enthusiasm. Reference the user's
@@ -79,6 +109,9 @@ not like a form.
 ## Specification (after confirmation)
 
 Write `/PRD.md` with: Overview, goals, users, prioritized features, technical requirements,
+**ORM/ODM choice** (based on the confirmed stack — e.g. Prisma for Node.js/TS, SQLAlchemy
+for Python, Mongoose for MongoDB; subagents read the PRD and use whatever ORM/ODM is
+specified there — never raw SQL or direct database driver calls),
 **Design Brief** (three paragraphs — see Design Brief Generation below), and **Milestones**
 as markdown checkboxes (M1…Mn tuned to the project scope).
 
@@ -215,6 +248,8 @@ description, in this order:
 - Support both LTR and RTL layouts.
 - Support localization using i18next.
 - Incorporate SEO best practices, GA4 tags, sitemap.xml, robots.txt, GDPR consent.
+  Always include for public-facing apps. For internal apps, include only if the user
+  confirmed they want it during Discovery.
 - Support all modern browsers (webkit, firefox, chromium).
 - Use the latest versions of all packages.
 - Avoid gradients unless they are core to the design brief. Avoid unnecessary banners.

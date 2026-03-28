@@ -23,21 +23,18 @@ function ErrorBanner({ error }: { error: string }) {
   )
 }
 
-/** Extract the task description from the orchestrator's `task()` tool call for a given subagent. */
+/** Extract the task prompt from the orchestrator's `task()` tool call for a given subagent. */
 function findTaskInstruction(allBlocks: ContentBlock[], agentName: string): string | undefined {
   for (const b of allBlocks) {
     if (b.type === 'tool' && b.scope !== 'subagent') {
       for (const tc of b.toolCalls) {
-        if (tc.name === 'task' && typeof tc.args?.description === 'string') {
-          // The task tool call description is the instruction sent to this subagent.
-          // We match loosely – if there's only one task call or its description mentions the agent.
-          const desc = tc.args.description as string
-          if (desc.toLowerCase().includes(agentName.toLowerCase()) || allBlocks.filter(
-            (bb) => bb.scope === 'subagent'
-          ).length > 0) {
-            return desc
-          }
-        }
+        if (tc.name !== 'task') continue
+        const targetAgent = (tc.args?.subagent_type as string) || ''
+        if (targetAgent.toLowerCase() !== agentName.toLowerCase()) continue
+        const prompt =
+          (typeof tc.args?.prompt === 'string' ? tc.args.prompt : undefined) ??
+          (typeof tc.args?.description === 'string' ? tc.args.description : undefined)
+        if (prompt) return prompt
       }
     }
   }
@@ -52,6 +49,7 @@ export function StreamingContainer({
   renderToolCalls,
 }: StreamingContainerProps) {
   const activeSubagent = useAgentStore((s) => s.agentState.activeSubagent)
+  const activeThreadIds = useAgentStore((s) => s.agentState.activeThreadIds)
   const groups = groupConsecutiveBlocksByAgent(blocks)
 
   // Track which subagent dialog is open: key = `${gidx}|${agentName}`
@@ -68,7 +66,9 @@ export function StreamingContainer({
               const showSpeakerName = !isOrchestratorName(group.agentName || activeAgent)
 
               if (isSubagent && group.agentName) {
-                const isLive = activeSubagent === group.agentName
+                // Use thread_id for liveness — two parallel agents with the same name
+                // each have a distinct thread_id so both pills show as live simultaneously.
+                const isLive = group.threadId ? activeThreadIds.has(group.threadId) : activeSubagent === group.agentName
                 const taskInstruction = findTaskInstruction(blocks, group.agentName)
                 return (
                   <div key={gidx} className="flex gap-3 items-start">
@@ -113,9 +113,10 @@ export function StreamingContainer({
                           <div className="prose-chat">
                             {renderTextBlock(block.text)}
                           </div>
-                        ) : (
-                          renderToolCalls(block.toolCalls)
-                        )}
+                        ) : (() => {
+                          const visibleCalls = block.toolCalls.filter((tc) => tc.name !== 'task')
+                          return visibleCalls.length > 0 ? renderToolCalls(visibleCalls) : null
+                        })()}
                       </div>
                     ))}
                   </div>

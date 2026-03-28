@@ -1,28 +1,56 @@
 import type { ContentBlock } from '../stores/agentStore'
 
-function blockGroupKey(b: ContentBlock): string {
-  const scope = b.scope ?? 'main'
-  return `${b.agentName ?? ''}|${scope}`
+export type BlockGroup = {
+  agentName?: string
+  scope?: ContentBlock['scope']
+  threadId?: string
+  blocks: ContentBlock[]
 }
 
-/** Group consecutive blocks from the same agent and scope for one message chrome row. */
-export function groupConsecutiveBlocksByAgent(
-  blocks: ContentBlock[]
-): Array<{ agentName?: string; scope?: ContentBlock['scope']; blocks: ContentBlock[] }> {
+/**
+ * Group blocks for rendering.
+ *
+ * - Main-scope blocks: grouped consecutively by agent name (order matters for inline rendering).
+ * - Subagent blocks with a threadId: merged into ONE group per unique threadId regardless
+ *   of interleaving.  Parallel subagents produce interleaved events; this ensures each
+ *   subagent gets a single pill instead of dozens of alternating fragments.
+ */
+export function groupConsecutiveBlocksByAgent(blocks: ContentBlock[]): BlockGroup[] {
   if (blocks.length === 0) return []
-  const groups: Array<{
-    agentName?: string
-    scope?: ContentBlock['scope']
-    blocks: ContentBlock[]
-  }> = []
+
+  const result: BlockGroup[] = []
+  const threadGroups = new Map<string, BlockGroup>()
+
+  let lastMainKey: string | undefined
+
   for (const b of blocks) {
-    const last = groups[groups.length - 1]
-    const prev = last?.blocks[last.blocks.length - 1]
-    if (last && prev && blockGroupKey(prev) === blockGroupKey(b)) {
-      last.blocks.push(b)
+    const scope = b.scope ?? 'main'
+
+    if (scope === 'subagent' && b.threadId) {
+      const existing = threadGroups.get(b.threadId)
+      if (existing) {
+        existing.blocks.push(b)
+      } else {
+        const group: BlockGroup = {
+          agentName: b.agentName,
+          scope: b.scope,
+          threadId: b.threadId,
+          blocks: [b],
+        }
+        threadGroups.set(b.threadId, group)
+        result.push(group)
+      }
+      lastMainKey = undefined
     } else {
-      groups.push({ agentName: b.agentName, scope: b.scope, blocks: [b] })
+      const key = `${b.agentName ?? ''}|${scope}`
+      if (lastMainKey === key) {
+        result[result.length - 1].blocks.push(b)
+      } else {
+        result.push({ agentName: b.agentName, scope: b.scope, threadId: b.threadId, blocks: [b] })
+        lastMainKey = key
+      }
     }
   }
-  return groups
+
+  return result
 }

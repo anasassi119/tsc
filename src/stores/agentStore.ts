@@ -3,8 +3,8 @@ import { create } from 'zustand'
 export type BlockScope = 'main' | 'subagent'
 
 export type ContentBlock =
-  | { type: 'text'; text: string; agentName?: string; scope?: BlockScope }
-  | { type: 'tool'; toolCalls: ToolCall[]; agentName?: string; scope?: BlockScope }
+  | { type: 'text'; text: string; agentName?: string; scope?: BlockScope; threadId?: string }
+  | { type: 'tool'; toolCalls: ToolCall[]; agentName?: string; scope?: BlockScope; threadId?: string }
 
 export interface Message {
   id: string
@@ -133,6 +133,8 @@ export interface AgentState {
   activeAgent: string | null
   /** Subagent graph label while delegated work is streaming (e.g. frontend). */
   activeSubagent: string | null
+  /** Set of thread_ids for all currently live subagent invocations. */
+  activeThreadIds: Set<string>
   /** Dashboard state keyed by project id (per-project, not global). */
   dashboardByProject: Record<string, ProjectDashboardState>
 }
@@ -172,6 +174,9 @@ interface AgentStore {
   agentState: AgentState
   setActiveAgent: (agent: string | null) => void
   setActiveSubagent: (label: string | null) => void
+  addActiveThreadId: (threadId: string) => void
+  removeActiveThreadId: (threadId: string) => void
+  clearActiveThreadIds: () => void
   getDashboard: (projectId: string | null) => ProjectDashboardState
   setPrdPath: (projectId: string, path: string | null) => void
   setPreview: (projectId: string, url: string | null, mode: PreviewMode | null) => void
@@ -203,8 +208,8 @@ interface AgentStore {
 
   /** Interleaved blocks for current stream (text + tool in order). */
   streamingBlocks: ContentBlock[]
-  appendStreamChunk: (content: string, agentOverride?: string, scope?: BlockScope) => void
-  pushStreamToolBlock: (toolCall: ToolCall, agentOverride?: string, scope?: BlockScope) => void
+  appendStreamChunk: (content: string, agentOverride?: string, scope?: BlockScope, threadId?: string) => void
+  pushStreamToolBlock: (toolCall: ToolCall, agentOverride?: string, scope?: BlockScope, threadId?: string) => void
   updateLastStreamToolResult: (
     toolCallId: string,
     result: string,
@@ -265,12 +270,30 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   agentState: {
     activeAgent: null,
     activeSubagent: null,
+    activeThreadIds: new Set<string>(),
     dashboardByProject: {},
   },
   setActiveAgent: (agent) =>
     set((state) => ({ agentState: { ...state.agentState, activeAgent: agent } })),
   setActiveSubagent: (label) =>
     set((state) => ({ agentState: { ...state.agentState, activeSubagent: label } })),
+  addActiveThreadId: (threadId) =>
+    set((state) => ({
+      agentState: {
+        ...state.agentState,
+        activeThreadIds: new Set([...state.agentState.activeThreadIds, threadId]),
+      },
+    })),
+  removeActiveThreadId: (threadId) =>
+    set((state) => {
+      const next = new Set(state.agentState.activeThreadIds)
+      next.delete(threadId)
+      return { agentState: { ...state.agentState, activeThreadIds: next } }
+    }),
+  clearActiveThreadIds: () =>
+    set((state) => ({
+      agentState: { ...state.agentState, activeThreadIds: new Set<string>() },
+    })),
 
   getDashboard: (projectId) => {
     if (!projectId) {
@@ -623,29 +646,29 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   setStreamingToolCalls: (calls) => set({ streamingToolCalls: calls }),
 
   streamingBlocks: [],
-  appendStreamChunk: (content, agentOverride?: string, scope: BlockScope = 'main') =>
+  appendStreamChunk: (content, agentOverride?: string, scope: BlockScope = 'main', threadId?: string) =>
     set((state) => {
       const agent = agentOverride ?? state.agentState.activeAgent ?? undefined
       const blocks = [...state.streamingBlocks]
       const last = blocks[blocks.length - 1]
       if (last?.type === 'text') {
         const lastScope = last.scope ?? 'main'
-        if (lastScope === scope && last.agentName === agent) {
+        if (lastScope === scope && last.agentName === agent && last.threadId === threadId) {
           blocks[blocks.length - 1] = { ...last, text: last.text + content }
           return { streamingBlocks: blocks }
         }
       }
-      blocks.push({ type: 'text', text: content, agentName: agent, scope })
+      blocks.push({ type: 'text', text: content, agentName: agent, scope, threadId })
       return { streamingBlocks: blocks }
     }),
-  pushStreamToolBlock: (toolCall, agentOverride?: string, scope: BlockScope = 'main') =>
+  pushStreamToolBlock: (toolCall, agentOverride?: string, scope: BlockScope = 'main', threadId?: string) =>
     set((state) => {
       const agent = agentOverride ?? state.agentState.activeAgent ?? undefined
       const tc: ToolCall = { ...toolCall, scope: toolCall.scope ?? scope }
       return {
         streamingBlocks: [
           ...state.streamingBlocks,
-          { type: 'tool', toolCalls: [tc], agentName: agent, scope: tc.scope },
+          { type: 'tool', toolCalls: [tc], agentName: agent, scope: tc.scope, threadId },
         ],
       }
     }),
@@ -674,6 +697,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
           type: 'tool',
           agentName: block.agentName,
           scope: block.scope,
+          threadId: block.threadId,
           toolCalls: nextCalls,
         }
         return { streamingBlocks: blocks }

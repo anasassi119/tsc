@@ -898,14 +898,18 @@ function GenericArgsDetail({ args }: { args: Record<string, unknown> }) {
 
 // ── Message Bubble ──────────────────────────────────────────────────────
 
-/** Find the task() instruction within the orchestrator blocks of a message. */
-function findTaskInstructionInBlocks(blocks: ContentBlock[]): string | undefined {
+/** Find the task() instruction targeting a specific subagent within the orchestrator blocks. */
+function findTaskInstructionInBlocks(blocks: ContentBlock[], agentName: string): string | undefined {
   for (const b of blocks) {
     if (b.type === 'tool' && b.scope !== 'subagent') {
       for (const tc of b.toolCalls) {
-        if (tc.name === 'task' && typeof tc.args?.description === 'string') {
-          return tc.args.description as string
-        }
+        if (tc.name !== 'task') continue
+        const targetAgent = (tc.args?.subagent_type as string) || ''
+        if (targetAgent.toLowerCase() !== agentName.toLowerCase()) continue
+        const prompt =
+          (typeof tc.args?.prompt === 'string' ? tc.args.prompt : undefined) ??
+          (typeof tc.args?.description === 'string' ? tc.args.description : undefined)
+        if (prompt) return prompt
       }
     }
   }
@@ -941,7 +945,7 @@ const MessageBubble = memo(function MessageBubble({ message }: { message: Messag
             const showSpeakerName = !isOrchestratorName(group.agentName || message.agentName)
 
             if (isSubagent && group.agentName) {
-              const taskInstruction = findTaskInstructionInBlocks(message.blocks!)
+              const taskInstruction = findTaskInstructionInBlocks(message.blocks!, group.agentName)
               return (
                 <div key={gidx} className="flex gap-3 items-start">
                   <AssistantMessageChrome
@@ -985,9 +989,10 @@ const MessageBubble = memo(function MessageBubble({ message }: { message: Messag
                             <MarkdownContent content={block.text} />
                           </div>
                         )
-                      ) : (
-                        <ToolCallList calls={block.toolCalls} />
-                      )}
+                      ) : (() => {
+                        const visibleCalls = block.toolCalls.filter((tc) => tc.name !== 'task')
+                        return visibleCalls.length > 0 ? <ToolCallList calls={visibleCalls} /> : null
+                      })()}
                     </div>
                   ))}
                 </div>

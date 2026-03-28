@@ -226,6 +226,10 @@ Design and implement all database-related artifacts for the project as described
 task you receive. This includes schema design, migrations, seed data, and complex queries.
 Verify every migration by running it. Document the schema.
 
+Always use the ORM/ODM specified in `/PRD.md` (e.g. Prisma, SQLAlchemy, Mongoose). Never
+write raw SQL or direct database driver calls. Define schemas, models, and migrations
+through the ORM/ODM's API.
+
 # **Context**
 
 * **Tools**: `read_file`, `write_file`, `edit_file`, `ls`, `grep`, `glob`, `execute`.
